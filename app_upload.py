@@ -821,105 +821,84 @@ if not st.session_state.df_prices.empty and not st.session_state.df_stores.empty
                     <style>
                         body {{ 
                             font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', Arial, sans-serif;
-                            line-height: 1.6;
                             color: #333;
                             padding: 20px;
+                            background-color: #f8f9fa;
                         }}
-                        .header {{
-                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                            color: white;
+                        .container {{
+                            background-color: white;
                             padding: 30px;
-                            border-radius: 10px 10px 0 0;
-                            margin-bottom: 0;
+                            border-radius: 8px;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
                         }}
-                        .header h2 {{
+                        h2 {{
+                            color: #333;
                             margin: 0 0 10px 0;
-                            font-size: 28px;
                         }}
-                        .header p {{
-                            margin: 5px 0;
-                            font-size: 16px;
-                            opacity: 0.9;
-                        }}
-                        .content {{
-                            background-color: #ffffff;
-                            padding: 30px;
-                            border: 1px solid #e0e0e0;
-                            border-top: none;
-                            border-radius: 0 0 10px 10px;
+                        .info {{
+                            margin: 10px 0 20px 0;
+                            line-height: 1.6;
                         }}
                         h3 {{
-                            color: #667eea;
-                            margin-top: 0;
-                            margin-bottom: 20px;
-                            font-size: 20px;
-                            border-bottom: 2px solid #667eea;
-                            padding-bottom: 10px;
+                            color: #333;
+                            margin: 30px 0 15px 0;
+                            font-size: 18px;
                         }}
                         table {{ 
                             border-collapse: collapse; 
                             width: 100%; 
                             margin: 20px 0;
-                            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
                             font-size: 13px;
                         }}
                         th {{ 
-                            border: 1px solid #666;
-                            padding: 12px 8px;
-                            text-align: center;
-                            font-weight: bold;
-                            background-color: #495057;
-                            color: white;
-                        }}
-                        td {{ 
-                            border: 1px solid #dee2e6;
+                            border: 1px solid #000;
                             padding: 10px 8px;
                             text-align: center;
+                            font-weight: bold;
+                            background-color: #ffffff;
+                            color: #000;
+                        }}
+                        td {{ 
+                            border: 1px solid #ddd;
+                            padding: 8px;
+                            text-align: center;
+                        }}
+                        tr:nth-child(even) {{
+                            background-color: #f8f9fa;
                         }}
                         .store-name {{ 
-                            background-color: #f8f9fa;
+                            background-color: inherit;
                             text-align: left;
-                            font-weight: bold;
-                            color: #212529;
-                            border-right: 2px solid #666;
+                            font-weight: normal;
+                            color: #000;
+                            padding-left: 15px;
                         }}
                         .qty {{ 
-                            color: #495057;
-                            background-color: #ffffff;
+                            color: #000;
                         }}
                         .amt {{ 
                             color: #0066CC;
-                            font-weight: 600;
-                            background-color: #f8f9fa;
+                            font-weight: normal;
                         }}
                         .total-col {{ 
-                            background-color: #fff3cd;
                             font-weight: bold;
-                            color: #856404;
-                            font-size: 14px;
-                            border-left: 2px solid #666;
-                        }}
-                        tr:hover {{
-                            background-color: #f1f3f5;
+                            color: #0066CC;
                         }}
                         .footer {{
                             margin-top: 30px;
-                            padding: 20px;
+                            padding: 15px;
                             background-color: #f8f9fa;
-                            border-radius: 5px;
-                            border-left: 4px solid #667eea;
-                        }}
-                        .footer p {{
-                            margin: 5px 0;
-                            color: #6c757d;
-                            font-size: 13px;
+                            border-left: 3px solid #0066CC;
+                            font-size: 12px;
+                            color: #666;
                         }}
                     </style>
                 </head>
                 <body>
-                    <div class="header">
+                    <div class="container">
                         <h2>🔥 파트너 정산 내역{email_subject_suffix}</h2>
-                        <p><strong>정산 기간:</strong> {datetime.now().strftime('%Y-%m-%d')}</p>
+                        <div class="info">
+                            <p><strong>정산 기간:</strong> {datetime.now().strftime('%Y-%m-%d')}</p>
 """
                 
                 if email_filtered and not df_export.empty:
@@ -929,24 +908,23 @@ if not st.session_state.df_prices.empty and not st.session_state.df_stores.empty
                     email_body += f"<p><strong>전체 정산 금액:</strong> {int(total_amount):,}원</p>"
                 
                 email_body += """
-                    </div>
-                    
-                    <div class="content">
+                        </div>
+                        
                         <h3>매장별 정산 내역</h3>
                         <table>
 """
                 
-                # 2단 헤더 구조 - rowspan 제대로 적용
+                # 2단 헤더 구조 - rowspan 적용
                 # 1행: 매장명(rowspan=2) + 각 카테고리(colspan=2) + 합계(rowspan=2)
-                email_body += "<tr><th rowspan='2' style='vertical-align: middle;'>매장명</th>"
+                email_body += "<tr><th rowspan='2' style='vertical-align: middle; min-width: 120px;'>매장명</th>"
                 for category in email_categories:
-                    email_body += f"<th colspan='2'>{category}</th>"
-                email_body += "<th rowspan='2' style='vertical-align: middle;'>합계</th></tr>"
+                    email_body += f"<th colspan='2' style='min-width: 160px;'>{category}</th>"
+                email_body += "<th rowspan='2' style='vertical-align: middle; min-width: 120px;'>합계</th></tr>"
                 
                 # 2행: 각 카테고리 아래 수량/금액
                 email_body += "<tr>"
                 for category in email_categories:
-                    email_body += "<th style='width: 80px;'>수량</th><th style='width: 100px;'>금액</th>"
+                    email_body += "<th style='width: 70px;'>수량</th><th style='width: 90px;'>금액</th>"
                 email_body += "</tr>"
                 
                 # 피벗 테이블 생성
@@ -967,22 +945,22 @@ if not st.session_state.df_prices.empty and not st.session_state.df_stores.empty
                             if ('수량', category) in pivot_summary.columns:
                                 qty = pivot_summary.loc[store_name, ('수량', category)]
                                 amt = pivot_summary.loc[store_name, ('금액', category)]
-                                qty_display = f"{int(qty):,}" if qty > 0 else "-"
-                                amt_display = f"{int(amt):,}원" if amt > 0 else "-"
+                                qty_display = f"{int(qty):,}" if qty > 0 else "0"
+                                amt_display = f"{int(amt):,}원" if amt > 0 else "0원"
                                 email_body += f"<td class='qty'>{qty_display}</td><td class='amt'>{amt_display}</td>"
                                 store_total += amt
                             else:
-                                email_body += "<td class='qty' style='color: #ccc;'>-</td><td class='amt' style='color: #ccc;'>-</td>"
+                                email_body += "<td class='qty'>0</td><td class='amt'>0원</td>"
                         email_body += f"<td class='total-col'>{int(store_total):,}원</td></tr>"
                 
                 email_body += """
                         </table>
-                    </div>
-                    
-                    <div class="footer">
-                        <p>📎 <strong>첨부 파일:</strong> 정산 결과 XLSX 파일이 첨부되어 있습니다.</p>
-                        <p>💡 <strong>안내:</strong> 상세 내역은 첨부된 엑셀 파일을 확인해주세요.</p>
-                        <p>📧 <strong>문의:</strong> 정산 내역에 대한 문의사항이 있으시면 연락 주시기 바랍니다.</p>
+                        
+                        <div class="footer">
+                            <p><strong>첨부 파일:</strong> 정산 결과 XLSX 파일</p>
+                            <p><strong>안내:</strong> 상세 내역은 첨부된 엑셀 파일을 확인해주세요.</p>
+                            <p><strong>문의:</strong> 정산 내역 문의사항이 있으시면 연락 주시기 바랍니다.</p>
+                        </div>
                     </div>
                 </body>
                 </html>
