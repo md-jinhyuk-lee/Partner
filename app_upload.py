@@ -817,83 +817,136 @@ if not st.session_state.df_prices.empty and not st.session_state.df_stores.empty
                 email_body = f"""
                 <html>
                 <head>
+                    <meta charset="utf-8">
                     <style>
-                        body {{ font-family: Arial, sans-serif; }}
-                        h2 {{ color: #333; }}
+                        body {{ 
+                            font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', Arial, sans-serif;
+                            line-height: 1.6;
+                            color: #333;
+                            padding: 20px;
+                        }}
+                        .header {{
+                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            color: white;
+                            padding: 30px;
+                            border-radius: 10px 10px 0 0;
+                            margin-bottom: 0;
+                        }}
+                        .header h2 {{
+                            margin: 0 0 10px 0;
+                            font-size: 28px;
+                        }}
+                        .header p {{
+                            margin: 5px 0;
+                            font-size: 16px;
+                            opacity: 0.9;
+                        }}
+                        .content {{
+                            background-color: #ffffff;
+                            padding: 30px;
+                            border: 1px solid #e0e0e0;
+                            border-top: none;
+                            border-radius: 0 0 10px 10px;
+                        }}
+                        h3 {{
+                            color: #667eea;
+                            margin-top: 0;
+                            margin-bottom: 20px;
+                            font-size: 20px;
+                            border-bottom: 2px solid #667eea;
+                            padding-bottom: 10px;
+                        }}
                         table {{ 
                             border-collapse: collapse; 
                             width: 100%; 
                             margin: 20px 0;
-                            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                            font-size: 13px;
                         }}
                         th {{ 
-                            border: 2px solid #333;
+                            border: 1px solid #666;
                             padding: 12px 8px;
                             text-align: center;
                             font-weight: bold;
+                            background-color: #495057;
+                            color: white;
                         }}
                         td {{ 
-                            border: 1px solid #ddd;
+                            border: 1px solid #dee2e6;
                             padding: 10px 8px;
-                            text-align: right;
-                        }}
-                        .header-category {{ 
-                            background-color: #FFF9E6;
-                            color: #333;
-                            font-size: 14px;
-                            font-weight: bold;
-                        }}
-                        .header-metric {{ 
-                            background-color: #FFFBF0;
-                            color: #666;
-                            font-size: 13px;
+                            text-align: center;
                         }}
                         .store-name {{ 
-                            background-color: #F5F5F5;
+                            background-color: #f8f9fa;
                             text-align: left;
                             font-weight: bold;
-                            color: #333;
+                            color: #212529;
+                            border-right: 2px solid #666;
+                        }}
+                        .qty {{ 
+                            color: #495057;
+                            background-color: #ffffff;
+                        }}
+                        .amt {{ 
+                            color: #0066CC;
+                            font-weight: 600;
+                            background-color: #f8f9fa;
                         }}
                         .total-col {{ 
-                            background-color: #E8F4F8;
+                            background-color: #fff3cd;
                             font-weight: bold;
-                            color: #0066CC;
+                            color: #856404;
+                            font-size: 14px;
+                            border-left: 2px solid #666;
                         }}
-                        .total-row {{ 
-                            background-color: #E8F4F8;
-                            font-weight: bold;
+                        tr:hover {{
+                            background-color: #f1f3f5;
                         }}
-                        .qty {{ color: #333; }}
-                        .amt {{ color: #0066CC; font-weight: 500; }}
+                        .footer {{
+                            margin-top: 30px;
+                            padding: 20px;
+                            background-color: #f8f9fa;
+                            border-radius: 5px;
+                            border-left: 4px solid #667eea;
+                        }}
+                        .footer p {{
+                            margin: 5px 0;
+                            color: #6c757d;
+                            font-size: 13px;
+                        }}
                     </style>
                 </head>
                 <body>
-                    <h2>💰 파트너 정산 내역{email_subject_suffix}</h2>
-                    <p>정산 기간: {datetime.now().strftime('%Y-%m-%d')}</p>
+                    <div class="header">
+                        <h2>🔥 파트너 정산 내역{email_subject_suffix}</h2>
+                        <p><strong>정산 기간:</strong> {datetime.now().strftime('%Y-%m-%d')}</p>
 """
                 
                 if email_filtered and not df_export.empty:
                     filtered_email_total = df_export['금액'].sum()
-                    email_body += f"<p><strong>전체 정산 금액 (필터 적용): {int(filtered_email_total):,}원</strong></p>"
+                    email_body += f"<p><strong>전체 정산 금액 (필터 적용):</strong> {int(filtered_email_total):,}원</p>"
                 else:
-                    email_body += f"<p><strong>전체 정산 금액: {int(total_amount):,}원</strong></p>"
+                    email_body += f"<p><strong>전체 정산 금액:</strong> {int(total_amount):,}원</p>"
                 
                 email_body += """
-                    <h3>매장별 정산 내역</h3>
-                    <table>
+                    </div>
+                    
+                    <div class="content">
+                        <h3>매장별 정산 내역</h3>
+                        <table>
 """
                 
-                # 2단 헤더 구조
-                # 1행: 카테고리
-                email_body += "<tr><th class='store-name'>매장명</th>"
+                # 2단 헤더 구조 - rowspan 제대로 적용
+                # 1행: 매장명(rowspan=2) + 각 카테고리(colspan=2) + 합계(rowspan=2)
+                email_body += "<tr><th rowspan='2' style='vertical-align: middle;'>매장명</th>"
                 for category in email_categories:
-                    email_body += f"<th colspan='2' class='header-category'>{category}</th>"
-                email_body += "<th rowspan='2' class='header-category'>합계</th></tr>"
+                    email_body += f"<th colspan='2'>{category}</th>"
+                email_body += "<th rowspan='2' style='vertical-align: middle;'>합계</th></tr>"
                 
-                # 2행: 수량/금액
-                email_body += "<tr><th class='header-metric'>　</th>"
+                # 2행: 각 카테고리 아래 수량/금액
+                email_body += "<tr>"
                 for category in email_categories:
-                    email_body += "<th class='header-metric'>수량</th><th class='header-metric'>금액</th>"
+                    email_body += "<th style='width: 80px;'>수량</th><th style='width: 100px;'>금액</th>"
                 email_body += "</tr>"
                 
                 # 피벗 테이블 생성
@@ -914,15 +967,23 @@ if not st.session_state.df_prices.empty and not st.session_state.df_stores.empty
                             if ('수량', category) in pivot_summary.columns:
                                 qty = pivot_summary.loc[store_name, ('수량', category)]
                                 amt = pivot_summary.loc[store_name, ('금액', category)]
-                                email_body += f"<td class='qty'>{int(qty):,}</td><td class='amt'>{int(amt):,}원</td>"
+                                qty_display = f"{int(qty):,}" if qty > 0 else "-"
+                                amt_display = f"{int(amt):,}원" if amt > 0 else "-"
+                                email_body += f"<td class='qty'>{qty_display}</td><td class='amt'>{amt_display}</td>"
                                 store_total += amt
                             else:
-                                email_body += "<td class='qty'>0</td><td class='amt'>0원</td>"
+                                email_body += "<td class='qty' style='color: #ccc;'>-</td><td class='amt' style='color: #ccc;'>-</td>"
                         email_body += f"<td class='total-col'>{int(store_total):,}원</td></tr>"
                 
                 email_body += """
-                    </table>
-                    <p style='color: #666; font-size: 13px;'>※ 상세 내역은 첨부된 XLSX 파일을 확인해주세요.</p>
+                        </table>
+                    </div>
+                    
+                    <div class="footer">
+                        <p>📎 <strong>첨부 파일:</strong> 정산 결과 XLSX 파일이 첨부되어 있습니다.</p>
+                        <p>💡 <strong>안내:</strong> 상세 내역은 첨부된 엑셀 파일을 확인해주세요.</p>
+                        <p>📧 <strong>문의:</strong> 정산 내역에 대한 문의사항이 있으시면 연락 주시기 바랍니다.</p>
+                    </div>
                 </body>
                 </html>
                 """
