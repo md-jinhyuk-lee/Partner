@@ -6,6 +6,8 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
 from io import BytesIO
+import pickle
+import os
 
 # 페이지 설정
 st.set_page_config(
@@ -14,13 +16,48 @@ st.set_page_config(
     layout="wide"
 )
 
-# 세션 스테이트 초기화
-if 'df_prices' not in st.session_state:
-    st.session_state.df_prices = pd.DataFrame()
-if 'df_stores' not in st.session_state:
-    st.session_state.df_stores = pd.DataFrame()
-if 'df_usage' not in st.session_state:
-    st.session_state.df_usage = pd.DataFrame()
+# 데이터 파일 경로
+DATA_FILE = "partner_data.pkl"
+
+# 데이터 저장 함수
+def save_data():
+    """현재 데이터를 파일로 저장"""
+    data = {
+        'df_prices': st.session_state.df_prices,
+        'df_stores': st.session_state.df_stores,
+        'df_usage': st.session_state.df_usage
+    }
+    with open(DATA_FILE, 'wb') as f:
+        pickle.dump(data, f)
+
+# 데이터 로드 함수
+def load_data():
+    """파일에서 데이터 로드"""
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, 'rb') as f:
+                data = pickle.load(f)
+                return data
+        except:
+            return None
+    return None
+
+# 세션 스테이트 초기화 - 파일에서 로드 시도
+if 'data_loaded' not in st.session_state:
+    st.session_state.data_loaded = False
+    saved_data = load_data()
+    
+    if saved_data:
+        st.session_state.df_prices = saved_data.get('df_prices', pd.DataFrame())
+        st.session_state.df_stores = saved_data.get('df_stores', pd.DataFrame())
+        st.session_state.df_usage = saved_data.get('df_usage', pd.DataFrame())
+    else:
+        st.session_state.df_prices = pd.DataFrame()
+        st.session_state.df_stores = pd.DataFrame()
+        st.session_state.df_usage = pd.DataFrame()
+    
+    st.session_state.data_loaded = True
+
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 
@@ -59,8 +96,31 @@ with st.sidebar:
         st.session_state.df_prices = pd.DataFrame()
         st.session_state.df_stores = pd.DataFrame()
         st.session_state.df_usage = pd.DataFrame()
+        save_data()  # 파일에도 저장
         st.success("데이터가 초기화되었습니다!")
         st.rerun()
+    
+    st.divider()
+    
+    # 현재 데이터 상태 표시
+    st.markdown("### 📊 현재 데이터 상태")
+    
+    if os.path.exists(DATA_FILE):
+        st.success("✅ 공유 데이터 파일 존재")
+        
+        # 데이터 개수 표시
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            st.metric("품목", len(st.session_state.df_prices))
+        with col_b:
+            st.metric("매장", len(st.session_state.df_stores))
+        with col_c:
+            st.metric("내역", len(st.session_state.df_usage))
+        
+        st.info("💡 모든 사용자가 이 데이터를 공유합니다")
+    else:
+        st.warning("⚠️ 아직 데이터가 없습니다")
+        st.info("CSV 파일을 업로드하면 모든 사용자가 볼 수 있습니다")
     
     st.divider()
     
@@ -159,6 +219,7 @@ with col1:
                 else:
                     st.session_state.df_prices = df_new
                 
+                save_data()  # 파일에 저장
                 st.success(f"✅ {len(df_new)}개 품목 추가 (총 {len(st.session_state.df_prices)}개)")
             else:
                 st.error("❌ 필수 컬럼: 품목명, 단가, 카테고리")
@@ -186,6 +247,7 @@ with col2:
                 else:
                     st.session_state.df_stores = df_new
                 
+                save_data()  # 파일에 저장
                 st.success(f"✅ {len(df_new)}개 매장 추가 (총 {len(st.session_state.df_stores)}개)")
             else:
                 st.error("❌ 필수 컬럼: 매장명, 매장코드")
@@ -219,6 +281,7 @@ with col3:
                 else:
                     st.session_state.df_usage = df_new
                 
+                save_data()  # 파일에 저장
                 st.success(f"✅ {len(df_new)}건 추가 (총 {len(st.session_state.df_usage)}건)")
             else:
                 st.error("❌ 필수 컬럼: 날짜, 매장명(또는 매장코드), 품목명, 수량")
