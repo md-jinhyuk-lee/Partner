@@ -4,6 +4,7 @@ from datetime import datetime
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication
 from io import BytesIO
 
 # 페이지 설정
@@ -374,23 +375,114 @@ if not st.session_state.df_prices.empty and not st.session_state.df_stores.empty
             fill_value=0
         )
         
-        # 컬럼 정리
+        # MultiIndex 컬럼을 2단 헤더 형식의 데이터프레임으로 변환
         summary_display = []
         for store_name in pivot_summary.index:
-            row = {'매장명': store_name}
+            row_data = {'매장명': store_name}
             store_total = 0
+            
             for category in df_prices['카테고리'].unique():
                 if ('수량', category) in pivot_summary.columns:
                     qty = pivot_summary.loc[store_name, ('수량', category)]
                     amt = pivot_summary.loc[store_name, ('금액', category)]
-                    row[f'{category}_수량'] = int(qty) if qty == int(qty) else qty
-                    row[f'{category}_금액'] = f"{int(amt):,}원"
+                    # 카테고리별로 수량과 금액을 함께 표시
+                    row_data[f'{category}'] = f"수량: {int(qty):,} | 금액: {int(amt):,}원"
                     store_total += amt
-            row['합계'] = f"{int(store_total):,}원"
-            summary_display.append(row)
+                else:
+                    row_data[f'{category}'] = f"수량: 0 | 금액: 0원"
+            
+            row_data['합계'] = f"{int(store_total):,}원"
+            summary_display.append(row_data)
         
         df_summary_display = pd.DataFrame(summary_display)
-        st.dataframe(df_summary_display, use_container_width=True, hide_index=True)
+        
+        # HTML로 커스텀 테이블 생성 (더 보기 좋게)
+        html_table = """
+        <style>
+            .summary-table {
+                width: 100%;
+                border-collapse: collapse;
+                margin: 20px 0;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .summary-table th {
+                background-color: #FFF9E6;
+                border: 2px solid #333;
+                padding: 12px 8px;
+                text-align: center;
+                font-weight: bold;
+                color: #333;
+            }
+            .summary-table .header-category {
+                background-color: #FFF9E6;
+                font-size: 15px;
+            }
+            .summary-table .header-metric {
+                background-color: #FFFBF0;
+                font-size: 13px;
+                color: #666;
+            }
+            .summary-table td {
+                border: 1px solid #ddd;
+                padding: 10px 8px;
+                text-align: center;
+            }
+            .summary-table .store-col {
+                background-color: #F5F5F5;
+                font-weight: bold;
+                text-align: left;
+            }
+            .summary-table .total-col {
+                background-color: #E8F4F8;
+                font-weight: bold;
+                color: #0066CC;
+                font-size: 16px;
+            }
+            .summary-table .qty-cell {
+                color: #333;
+                font-size: 14px;
+            }
+            .summary-table .amt-cell {
+                color: #0066CC;
+                font-weight: 500;
+                font-size: 14px;
+            }
+        </style>
+        <table class="summary-table">
+            <thead>
+                <tr>
+                    <th rowspan="2" class="header-category">매장명</th>
+        """
+        
+        # 카테고리 헤더 (1행)
+        for category in df_prices['카테고리'].unique():
+            html_table += f'<th colspan="2" class="header-category">{category}</th>'
+        html_table += '<th rowspan="2" class="header-category">합계</th></tr><tr>'
+        
+        # 수량/금액 헤더 (2행)
+        for category in df_prices['카테고리'].unique():
+            html_table += '<th class="header-metric">수량</th><th class="header-metric">금액</th>'
+        html_table += '</tr></thead><tbody>'
+        
+        # 데이터 행
+        for store_name in pivot_summary.index:
+            html_table += f'<tr><td class="store-col">{store_name}</td>'
+            store_total = 0
+            
+            for category in df_prices['카테고리'].unique():
+                if ('수량', category) in pivot_summary.columns:
+                    qty = pivot_summary.loc[store_name, ('수량', category)]
+                    amt = pivot_summary.loc[store_name, ('금액', category)]
+                    html_table += f'<td class="qty-cell">{int(qty):,}</td><td class="amt-cell">{int(amt):,}원</td>'
+                    store_total += amt
+                else:
+                    html_table += '<td class="qty-cell">0</td><td class="amt-cell">0원</td>'
+            
+            html_table += f'<td class="total-col">{int(store_total):,}원</td></tr>'
+        
+        html_table += '</tbody></table>'
+        
+        st.markdown(html_table, unsafe_allow_html=True)
     
     st.divider()
     
@@ -726,10 +818,53 @@ if not st.session_state.df_prices.empty and not st.session_state.df_stores.empty
                 <html>
                 <head>
                     <style>
-                        table {{ border-collapse: collapse; width: 100%; }}
-                        th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-                        th {{ background-color: #667eea; color: white; }}
-                        .total {{ background-color: #f0f0f0; font-weight: bold; }}
+                        body {{ font-family: Arial, sans-serif; }}
+                        h2 {{ color: #333; }}
+                        table {{ 
+                            border-collapse: collapse; 
+                            width: 100%; 
+                            margin: 20px 0;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                        }}
+                        th {{ 
+                            border: 2px solid #333;
+                            padding: 12px 8px;
+                            text-align: center;
+                            font-weight: bold;
+                        }}
+                        td {{ 
+                            border: 1px solid #ddd;
+                            padding: 10px 8px;
+                            text-align: right;
+                        }}
+                        .header-category {{ 
+                            background-color: #FFF9E6;
+                            color: #333;
+                            font-size: 14px;
+                            font-weight: bold;
+                        }}
+                        .header-metric {{ 
+                            background-color: #FFFBF0;
+                            color: #666;
+                            font-size: 13px;
+                        }}
+                        .store-name {{ 
+                            background-color: #F5F5F5;
+                            text-align: left;
+                            font-weight: bold;
+                            color: #333;
+                        }}
+                        .total-col {{ 
+                            background-color: #E8F4F8;
+                            font-weight: bold;
+                            color: #0066CC;
+                        }}
+                        .total-row {{ 
+                            background-color: #E8F4F8;
+                            font-weight: bold;
+                        }}
+                        .qty {{ color: #333; }}
+                        .amt {{ color: #0066CC; font-weight: 500; }}
                     </style>
                 </head>
                 <body>
@@ -739,21 +874,27 @@ if not st.session_state.df_prices.empty and not st.session_state.df_stores.empty
                 
                 if email_filtered and not df_export.empty:
                     filtered_email_total = df_export['금액'].sum()
-                    email_body += f"<h3>정산 금액 (필터 적용): {int(filtered_email_total):,}원</h3>"
+                    email_body += f"<p><strong>전체 정산 금액 (필터 적용): {int(filtered_email_total):,}원</strong></p>"
                 else:
-                    email_body += f"<h3>전체 정산 금액: {int(total_amount):,}원</h3>"
+                    email_body += f"<p><strong>전체 정산 금액: {int(total_amount):,}원</strong></p>"
                 
                 email_body += """
                     <h3>매장별 정산 내역</h3>
                     <table>
-                        <tr>
-                            <th>매장명</th>
 """
                 
-                # 카테고리 헤더 추가
+                # 2단 헤더 구조
+                # 1행: 카테고리
+                email_body += "<tr><th class='store-name'>매장명</th>"
                 for category in email_categories:
-                    email_body += f"<th>{category} 수량</th><th>{category} 금액</th>"
-                email_body += "<th>합계</th></tr>"
+                    email_body += f"<th colspan='2' class='header-category'>{category}</th>"
+                email_body += "<th rowspan='2' class='header-category'>합계</th></tr>"
+                
+                # 2행: 수량/금액
+                email_body += "<tr><th class='header-metric'>　</th>"
+                for category in email_categories:
+                    email_body += "<th class='header-metric'>수량</th><th class='header-metric'>금액</th>"
+                email_body += "</tr>"
                 
                 # 피벗 테이블 생성
                 if not summary_data_for_email.empty:
@@ -767,22 +908,21 @@ if not st.session_state.df_prices.empty and not st.session_state.df_stores.empty
                     
                     # 데이터 행 추가
                     for store_name in pivot_summary.index:
-                        email_body += f"<tr><td>{store_name}</td>"
+                        email_body += f"<tr><td class='store-name'>{store_name}</td>"
                         store_total = 0
                         for category in email_categories:
                             if ('수량', category) in pivot_summary.columns:
                                 qty = pivot_summary.loc[store_name, ('수량', category)]
                                 amt = pivot_summary.loc[store_name, ('금액', category)]
-                                email_body += f"<td>{int(qty)}</td><td>{int(amt):,}원</td>"
+                                email_body += f"<td class='qty'>{int(qty):,}</td><td class='amt'>{int(amt):,}원</td>"
                                 store_total += amt
                             else:
-                                email_body += "<td>0</td><td>0원</td>"
-                        email_body += f"<td><strong>{int(store_total):,}원</strong></td></tr>"
+                                email_body += "<td class='qty'>0</td><td class='amt'>0원</td>"
+                        email_body += f"<td class='total-col'>{int(store_total):,}원</td></tr>"
                 
                 email_body += """
                     </table>
-                    <br>
-                    <p>※ 상세 내역은 첨부된 XLSX 파일을 확인해주세요.</p>
+                    <p style='color: #666; font-size: 13px;'>※ 상세 내역은 첨부된 XLSX 파일을 확인해주세요.</p>
                 </body>
                 </html>
                 """
@@ -792,13 +932,97 @@ if not st.session_state.df_prices.empty and not st.session_state.df_stores.empty
                     sender_email = DEFAULT_SENDER_EMAIL
                     sender_password = DEFAULT_SENDER_PASSWORD.replace(" ", "")  # 공백 제거
                     
-                    msg = MIMEMultipart('alternative')
+                    # XLSX 파일 생성
+                    output = BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        if email_filtered and not df_export.empty:
+                            # 필터링된 데이터
+                            if not df_category_summary.empty:
+                                pivot_summary = df_category_summary.pivot_table(
+                                    index='매장명',
+                                    columns='카테고리',
+                                    values=['수량', '금액'],
+                                    aggfunc='sum',
+                                    fill_value=0
+                                )
+                                
+                                summary_display = []
+                                for store_name in pivot_summary.index:
+                                    row = {'매장명': store_name}
+                                    store_total = 0
+                                    for category in selected_categories_summary:
+                                        if ('수량', category) in pivot_summary.columns:
+                                            qty = pivot_summary.loc[store_name, ('수량', category)]
+                                            amt = pivot_summary.loc[store_name, ('금액', category)]
+                                            row[f'{category}_수량'] = int(qty) if qty == int(qty) else qty
+                                            row[f'{category}_금액'] = int(amt)
+                                            store_total += amt
+                                    row['합계'] = int(store_total)
+                                    summary_display.append(row)
+                                
+                                pd.DataFrame(summary_display).to_excel(writer, sheet_name='매장별정산', index=False)
+                            
+                            df_export.to_excel(writer, sheet_name='상세내역', index=False)
+                        else:
+                            # 전체 데이터
+                            df_category_summary_all = pd.DataFrame(category_summary)
+                            if not df_category_summary_all.empty:
+                                pivot_summary = df_category_summary_all.pivot_table(
+                                    index='매장명',
+                                    columns='카테고리',
+                                    values=['수량', '금액'],
+                                    aggfunc='sum',
+                                    fill_value=0
+                                )
+                                
+                                summary_display = []
+                                for store_name in pivot_summary.index:
+                                    row = {'매장명': store_name}
+                                    store_total = 0
+                                    for category in df_prices['카테고리'].unique():
+                                        if ('수량', category) in pivot_summary.columns:
+                                            qty = pivot_summary.loc[store_name, ('수량', category)]
+                                            amt = pivot_summary.loc[store_name, ('금액', category)]
+                                            row[f'{category}_수량'] = int(qty) if qty == int(qty) else qty
+                                            row[f'{category}_금액'] = int(amt)
+                                            store_total += amt
+                                    row['합계'] = int(store_total)
+                                    summary_display.append(row)
+                                
+                                pd.DataFrame(summary_display).to_excel(writer, sheet_name='매장별정산', index=False)
+                            
+                            # 전체 상세 내역
+                            export_data_all = []
+                            for settlement in settlements:
+                                for item in settlement['상세내역']:
+                                    export_data_all.append({
+                                        '매장명': settlement['매장명'],
+                                        '매장코드': settlement['매장코드'],
+                                        '날짜': item['날짜'],
+                                        '품목명': item['품목명'],
+                                        '카테고리': item['카테고리'],
+                                        '수량': item['수량'],
+                                        '단가': item['단가'],
+                                        '금액': item['금액']
+                                    })
+                            pd.DataFrame(export_data_all).to_excel(writer, sheet_name='상세내역', index=False)
+                    
+                    excel_data = output.getvalue()
+                    
+                    # 이메일 메시지 생성
+                    msg = MIMEMultipart('mixed')
                     msg['Subject'] = f"[파트너 정산{email_subject_suffix}] {datetime.now().strftime('%Y-%m-%d')} 정산 내역"
                     msg['From'] = sender_email
                     msg['To'] = email_to
                     
+                    # HTML 본문 추가
                     html_part = MIMEText(email_body, 'html')
                     msg.attach(html_part)
+                    
+                    # XLSX 첨부
+                    xlsx_attachment = MIMEApplication(excel_data, _subtype='vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                    xlsx_attachment.add_header('Content-Disposition', 'attachment', filename=f"정산결과_{datetime.now().strftime('%Y%m%d')}.xlsx")
+                    msg.attach(xlsx_attachment)
                     
                     # Gmail SMTP 서버로 전송
                     with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
@@ -806,7 +1030,7 @@ if not st.session_state.df_prices.empty and not st.session_state.df_stores.empty
                         server.send_message(msg)
                     
                     st.success(f"✅ 이메일이 {email_to}로 발송되었습니다!")
-                    st.info(f"발신: {sender_email}")
+                    st.info(f"발신: {sender_email} | 첨부: 정산결과_{datetime.now().strftime('%Y%m%d')}.xlsx")
                 
                 except Exception as e:
                     st.error(f"❌ 이메일 발송 실패: {str(e)}")
