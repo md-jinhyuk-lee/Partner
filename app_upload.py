@@ -54,11 +54,19 @@ with st.sidebar:
     강남점,GN01
     ```
     
-    **사용내역.csv**
+    **사용내역.csv (옵션 1: 매장코드)**
     ```
     날짜,매장코드,품목명,수량
     2024-11-01,GN01,비닐봉투(소),50
     ```
+    
+    **사용내역.csv (옵션 2: 매장명)**
+    ```
+    날짜,매장명,품목명,수량
+    2024-11-01,강남점,비닐봉투(소),50
+    ```
+    
+    💡 **매장코드 또는 매장명 중 선택!**
     """)
 
 # 메인 영역
@@ -167,16 +175,24 @@ with col3:
         # 컬럼명 공백 제거
         df_usage.columns = df_usage.columns.str.strip()
         
-        # 필수 컬럼 체크
-        required_cols = ['날짜', '매장코드', '품목명', '수량']
-        missing_cols = [col for col in required_cols if col not in df_usage.columns]
+        # 필수 컬럼 체크 (매장코드 또는 매장명 중 하나만 있으면 됨)
+        has_store_code = '매장코드' in df_usage.columns
+        has_store_name = '매장명' in df_usage.columns
         
-        if missing_cols:
-            st.error(f"❌ 사용내역 파일에 필수 컬럼이 없습니다: {', '.join(missing_cols)}")
+        if not (has_store_code or has_store_name):
+            st.error("❌ 사용내역 파일에 '매장코드' 또는 '매장명' 컬럼이 필요합니다.")
             st.info(f"현재 컬럼: {', '.join(df_usage.columns.tolist())}")
-            st.warning("필요한 컬럼: 날짜, 매장코드, 품목명, 수량")
+            st.warning("필요한 컬럼: 날짜, (매장코드 또는 매장명), 품목명, 수량")
+        elif '날짜' not in df_usage.columns or '품목명' not in df_usage.columns or '수량' not in df_usage.columns:
+            missing = []
+            if '날짜' not in df_usage.columns: missing.append('날짜')
+            if '품목명' not in df_usage.columns: missing.append('품목명')
+            if '수량' not in df_usage.columns: missing.append('수량')
+            st.error(f"❌ 사용내역 파일에 필수 컬럼이 없습니다: {', '.join(missing)}")
+            st.info(f"현재 컬럼: {', '.join(df_usage.columns.tolist())}")
         else:
-            st.success(f"✅ {len(df_usage)}건 로드")
+            store_col_type = "매장명" if has_store_name else "매장코드"
+            st.success(f"✅ {len(df_usage)}건 로드 ({store_col_type} 사용)")
             with st.expander("데이터 미리보기"):
                 st.dataframe(df_usage.head(10), hide_index=True)
 
@@ -189,7 +205,8 @@ if price_file and store_file and usage_file:
     # 컬럼 존재 여부 확인
     price_cols_ok = all(col in df_prices.columns for col in ['품목명', '단가', '카테고리'])
     store_cols_ok = all(col in df_stores.columns for col in ['매장명', '매장코드'])
-    usage_cols_ok = all(col in df_usage.columns for col in ['날짜', '매장코드', '품목명', '수량'])
+    usage_has_store = '매장코드' in df_usage.columns or '매장명' in df_usage.columns
+    usage_cols_ok = all(col in df_usage.columns for col in ['날짜', '품목명', '수량']) and usage_has_store
     
     if not (price_cols_ok and store_cols_ok and usage_cols_ok):
         st.error("⚠️ 일부 파일의 컬럼명이 올바르지 않습니다. 위의 에러 메시지를 확인해주세요.")
@@ -211,12 +228,20 @@ if price_file and store_file and usage_file:
     settlements = []
     total_amount = 0
     
+    # 사용내역이 매장코드를 사용하는지 매장명을 사용하는지 확인
+    use_store_code = '매장코드' in df_usage.columns
+    
     for _, store in df_stores.iterrows():
         store_code = store['매장코드']
         store_name = store['매장명']
         
         # 해당 매장의 사용내역 필터링
-        store_usage = df_usage[df_usage['매장코드'] == store_code]
+        if use_store_code:
+            # 매장코드로 필터링
+            store_usage = df_usage[df_usage['매장코드'] == store_code]
+        else:
+            # 매장명으로 필터링
+            store_usage = df_usage[df_usage['매장명'] == store_name]
         
         if not store_usage.empty:
             store_total = 0
@@ -406,9 +431,29 @@ else:
 2024-11-03,YS01,행낭,3"""
         
         st.download_button(
-            label="📊 사용내역 샘플",
+            label="📊 사용내역 샘플 (매장코드)",
             data=sample_usage,
-            file_name="사용내역_샘플.csv",
+            file_name="사용내역_샘플_매장코드.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+        
+        sample_usage_name = """날짜,매장명,품목명,수량
+2024-11-01,강남점,비닐봉투(소),50
+2024-11-01,강남점,비닐봉투(대),30
+2024-11-01,강남점,택배,10
+2024-11-01,강남점,행낭,5
+2024-11-02,서초점,비닐봉투(소),40
+2024-11-02,서초점,박스(소),15
+2024-11-02,서초점,택배,8
+2024-11-03,역삼점,비닐봉투(대),25
+2024-11-03,역삼점,테이프,10
+2024-11-03,역삼점,행낭,3"""
+        
+        st.download_button(
+            label="📊 사용내역 샘플 (매장명)",
+            data=sample_usage_name,
+            file_name="사용내역_샘플_매장명.csv",
             mime="text/csv",
             use_container_width=True
         )
