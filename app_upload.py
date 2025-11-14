@@ -1,6 +1,10 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from io import BytesIO
 
 # 페이지 설정
 st.set_page_config(
@@ -9,6 +13,16 @@ st.set_page_config(
     layout="wide"
 )
 
+# 세션 스테이트 초기화
+if 'df_prices' not in st.session_state:
+    st.session_state.df_prices = pd.DataFrame()
+if 'df_stores' not in st.session_state:
+    st.session_state.df_stores = pd.DataFrame()
+if 'df_usage' not in st.session_state:
+    st.session_state.df_usage = pd.DataFrame()
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+
 # 제목
 st.title("💰 파트너 정산 관리 시스템")
 st.markdown("### 부자재 · 택배 · 행낭 사용 비용 자동 정산")
@@ -16,25 +30,32 @@ st.markdown("### 부자재 · 택배 · 행낭 사용 비용 자동 정산")
 # 사이드바 - 패스워드
 with st.sidebar:
     st.header("🔐 로그인")
-    password = st.text_input("패스워드", type="password", value="")
     
-    if password != "dy1234":
-        st.error("❌ 패스워드를 입력하세요")
+    if not st.session_state.authenticated:
+        password = st.text_input("패스워드", type="password", key="password_input")
+        
+        if st.button("로그인", use_container_width=True):
+            if password == "dy1234":
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("❌ 패스워드가 틀렸습니다")
         st.stop()
     else:
         st.success("✅ 인증 완료")
+        if st.button("로그아웃", use_container_width=True):
+            st.session_state.authenticated = False
+            st.rerun()
     
     st.divider()
     
-    st.markdown("""
-    ### 📋 사용 방법
-    
-    1. **단가관리** 파일 업로드
-    2. **매장관리** 파일 업로드
-    3. **사용내역** 파일 업로드
-    
-    → 자동으로 정산 계산!
-    """)
+    # 데이터 초기화 버튼
+    if st.button("🗑️ 전체 데이터 초기화", use_container_width=True, type="secondary"):
+        st.session_state.df_prices = pd.DataFrame()
+        st.session_state.df_stores = pd.DataFrame()
+        st.session_state.df_usage = pd.DataFrame()
+        st.success("데이터가 초기화되었습니다!")
+        st.rerun()
     
     st.divider()
     
@@ -54,25 +75,34 @@ with st.sidebar:
     강남점,GN01
     ```
     
-    **사용내역.csv (옵션 1: 매장코드)**
-    ```
-    날짜,매장코드,품목명,수량
-    2024-11-01,GN01,비닐봉투(소),50
-    ```
-    
-    **사용내역.csv (옵션 2: 매장명)**
+    **사용내역.csv**
     ```
     날짜,매장명,품목명,수량
     2024-11-01,강남점,비닐봉투(소),50
     ```
     
-    💡 **매장코드 또는 매장명 중 선택!**
+    💡 **기존 데이터에 추가됩니다!**
     """)
+
+# CSV 로드 함수
+def load_csv_with_encoding(file):
+    """다양한 인코딩으로 CSV 로드 시도"""
+    for encoding in ['utf-8', 'cp949', 'euc-kr']:
+        try:
+            file.seek(0)
+            df = pd.read_csv(file, encoding=encoding)
+            df.columns = df.columns.str.strip()
+            for col in df.columns:
+                if df[col].dtype == 'object':
+                    df[col] = df[col].str.strip()
+            return df
+        except:
+            continue
+    return None
 
 # 메인 영역
 st.header("📤 파일 업로드")
 
-# 3개 열로 나누기
 col1, col2, col3 = st.columns(3)
 
 # 단가관리 업로드
@@ -86,48 +116,25 @@ with col1:
     )
     
     if price_file:
-        try:
-            # UTF-8 시도
-            df_prices = pd.read_csv(price_file, encoding='utf-8')
-        except UnicodeDecodeError:
-            # CP949(EUC-KR) 시도
-            price_file.seek(0)  # 파일 포인터 초기화
-            try:
-                df_prices = pd.read_csv(price_file, encoding='cp949')
-            except:
-                price_file.seek(0)
-                df_prices = pd.read_csv(price_file, encoding='euc-kr')
-        
-        # 컬럼명 공백 제거
-        df_prices.columns = df_prices.columns.str.strip()
-        
-        # 데이터 공백 제거 (문자열 컬럼만)
-        for col in df_prices.columns:
-            if df_prices[col].dtype == 'object':
-                df_prices[col] = df_prices[col].str.strip()
-        
-        # 필수 컬럼 체크
-        required_cols = ['품목명', '단가', '카테고리']
-        missing_cols = [col for col in required_cols if col not in df_prices.columns]
-        
-        if missing_cols:
-            st.error(f"❌ 단가관리 파일에 필수 컬럼이 없습니다: {', '.join(missing_cols)}")
-            st.info(f"현재 컬럼: {', '.join(df_prices.columns.tolist())}")
-            st.warning("필요한 컬럼: 품목명, 단가, 카테고리")
-        else:
-            # 단가를 숫자로 변환
-            try:
-                df_prices['단가'] = pd.to_numeric(df_prices['단가'], errors='coerce')
-                invalid_prices = df_prices[df_prices['단가'].isna()]
-                if not invalid_prices.empty:
-                    st.warning(f"⚠️ 단가가 숫자가 아닌 항목이 있습니다: {invalid_prices['품목명'].tolist()}")
-                    df_prices = df_prices[df_prices['단가'].notna()]
-            except Exception as e:
-                st.error(f"단가 변환 오류: {e}")
-            
-            st.success(f"✅ {len(df_prices)}개 품목 로드")
-            with st.expander("데이터 미리보기"):
-                st.dataframe(df_prices, hide_index=True)
+        df_new = load_csv_with_encoding(price_file)
+        if df_new is not None:
+            # 필수 컬럼 확인
+            if all(col in df_new.columns for col in ['품목명', '단가', '카테고리']):
+                df_new['단가'] = pd.to_numeric(df_new['단가'], errors='coerce')
+                df_new = df_new.dropna(subset=['단가'])
+                
+                # 기존 데이터와 병합 (중복 제거)
+                if not st.session_state.df_prices.empty:
+                    st.session_state.df_prices = pd.concat([st.session_state.df_prices, df_new]).drop_duplicates(subset=['품목명'], keep='last').reset_index(drop=True)
+                else:
+                    st.session_state.df_prices = df_new
+                
+                st.success(f"✅ {len(df_new)}개 품목 추가 (총 {len(st.session_state.df_prices)}개)")
+            else:
+                st.error("❌ 필수 컬럼: 품목명, 단가, 카테고리")
+    
+    if not st.session_state.df_prices.empty:
+        st.info(f"현재 {len(st.session_state.df_prices)}개 품목 등록됨")
 
 # 매장관리 업로드
 with col2:
@@ -140,36 +147,21 @@ with col2:
     )
     
     if store_file:
-        try:
-            df_stores = pd.read_csv(store_file, encoding='utf-8')
-        except UnicodeDecodeError:
-            store_file.seek(0)
-            try:
-                df_stores = pd.read_csv(store_file, encoding='cp949')
-            except:
-                store_file.seek(0)
-                df_stores = pd.read_csv(store_file, encoding='euc-kr')
-        
-        # 컬럼명 공백 제거
-        df_stores.columns = df_stores.columns.str.strip()
-        
-        # 데이터 공백 제거 (문자열 컬럼만)
-        for col in df_stores.columns:
-            if df_stores[col].dtype == 'object':
-                df_stores[col] = df_stores[col].str.strip()
-        
-        # 필수 컬럼 체크
-        required_cols = ['매장명', '매장코드']
-        missing_cols = [col for col in required_cols if col not in df_stores.columns]
-        
-        if missing_cols:
-            st.error(f"❌ 매장관리 파일에 필수 컬럼이 없습니다: {', '.join(missing_cols)}")
-            st.info(f"현재 컬럼: {', '.join(df_stores.columns.tolist())}")
-            st.warning("필요한 컬럼: 매장명, 매장코드")
-        else:
-            st.success(f"✅ {len(df_stores)}개 매장 로드")
-            with st.expander("데이터 미리보기"):
-                st.dataframe(df_stores, hide_index=True)
+        df_new = load_csv_with_encoding(store_file)
+        if df_new is not None:
+            if all(col in df_new.columns for col in ['매장명', '매장코드']):
+                # 기존 데이터와 병합 (중복 제거)
+                if not st.session_state.df_stores.empty:
+                    st.session_state.df_stores = pd.concat([st.session_state.df_stores, df_new]).drop_duplicates(subset=['매장코드'], keep='last').reset_index(drop=True)
+                else:
+                    st.session_state.df_stores = df_new
+                
+                st.success(f"✅ {len(df_new)}개 매장 추가 (총 {len(st.session_state.df_stores)}개)")
+            else:
+                st.error("❌ 필수 컬럼: 매장명, 매장코드")
+    
+    if not st.session_state.df_stores.empty:
+        st.info(f"현재 {len(st.session_state.df_stores)}개 매장 등록됨")
 
 # 사용내역 업로드
 with col3:
@@ -178,74 +170,117 @@ with col3:
         "사용내역 CSV 파일",
         type=['csv'],
         key="usage_file",
-        help="날짜, 매장코드, 품목명, 수량"
+        help="날짜, 매장명(또는 매장코드), 품목명, 수량"
     )
     
     if usage_file:
-        try:
-            df_usage = pd.read_csv(usage_file, encoding='utf-8')
-        except UnicodeDecodeError:
-            usage_file.seek(0)
-            try:
-                df_usage = pd.read_csv(usage_file, encoding='cp949')
-            except:
-                usage_file.seek(0)
-                df_usage = pd.read_csv(usage_file, encoding='euc-kr')
-        
-        # 컬럼명 공백 제거
-        df_usage.columns = df_usage.columns.str.strip()
-        
-        # 데이터 공백 제거 (문자열 컬럼만)
-        for col in df_usage.columns:
-            if df_usage[col].dtype == 'object':
-                df_usage[col] = df_usage[col].str.strip()
-        
-        # 필수 컬럼 체크 (매장코드 또는 매장명 중 하나만 있으면 됨)
-        has_store_code = '매장코드' in df_usage.columns
-        has_store_name = '매장명' in df_usage.columns
-        
-        if not (has_store_code or has_store_name):
-            st.error("❌ 사용내역 파일에 '매장코드' 또는 '매장명' 컬럼이 필요합니다.")
-            st.info(f"현재 컬럼: {', '.join(df_usage.columns.tolist())}")
-            st.warning("필요한 컬럼: 날짜, (매장코드 또는 매장명), 품목명, 수량")
-        elif '날짜' not in df_usage.columns or '품목명' not in df_usage.columns or '수량' not in df_usage.columns:
-            missing = []
-            if '날짜' not in df_usage.columns: missing.append('날짜')
-            if '품목명' not in df_usage.columns: missing.append('품목명')
-            if '수량' not in df_usage.columns: missing.append('수량')
-            st.error(f"❌ 사용내역 파일에 필수 컬럼이 없습니다: {', '.join(missing)}")
-            st.info(f"현재 컬럼: {', '.join(df_usage.columns.tolist())}")
-        else:
-            # 수량을 숫자로 변환
-            try:
-                df_usage['수량'] = pd.to_numeric(df_usage['수량'], errors='coerce')
-                invalid_qty = df_usage[df_usage['수량'].isna()]
-                if not invalid_qty.empty:
-                    st.warning(f"⚠️ 수량이 숫자가 아닌 항목이 {len(invalid_qty)}개 있습니다. 해당 항목은 제외됩니다.")
-                    df_usage = df_usage[df_usage['수량'].notna()]
-            except Exception as e:
-                st.error(f"수량 변환 오류: {e}")
+        df_new = load_csv_with_encoding(usage_file)
+        if df_new is not None:
+            has_store = '매장코드' in df_new.columns or '매장명' in df_new.columns
+            has_required = all(col in df_new.columns for col in ['날짜', '품목명', '수량'])
             
-            store_col_type = "매장명" if has_store_name else "매장코드"
-            st.success(f"✅ {len(df_usage)}건 로드 ({store_col_type} 사용)")
-            with st.expander("데이터 미리보기"):
-                st.dataframe(df_usage.head(10), hide_index=True)
+            if has_store and has_required:
+                df_new['수량'] = pd.to_numeric(df_new['수량'], errors='coerce')
+                df_new = df_new.dropna(subset=['수량'])
+                
+                # 기존 데이터와 병합
+                if not st.session_state.df_usage.empty:
+                    st.session_state.df_usage = pd.concat([st.session_state.df_usage, df_new]).reset_index(drop=True)
+                else:
+                    st.session_state.df_usage = df_new
+                
+                st.success(f"✅ {len(df_new)}건 추가 (총 {len(st.session_state.df_usage)}건)")
+            else:
+                st.error("❌ 필수 컬럼: 날짜, 매장명(또는 매장코드), 품목명, 수량")
+    
+    if not st.session_state.df_usage.empty:
+        st.info(f"현재 {len(st.session_state.df_usage)}건 등록됨")
 
 st.divider()
 
 # 정산 계산
-if price_file and store_file and usage_file:
+if not st.session_state.df_prices.empty and not st.session_state.df_stores.empty and not st.session_state.df_usage.empty:
     st.header("📊 정산 결과")
     
-    # 컬럼 존재 여부 확인
-    price_cols_ok = all(col in df_prices.columns for col in ['품목명', '단가', '카테고리'])
-    store_cols_ok = all(col in df_stores.columns for col in ['매장명', '매장코드'])
-    usage_has_store = '매장코드' in df_usage.columns or '매장명' in df_usage.columns
-    usage_cols_ok = all(col in df_usage.columns for col in ['날짜', '품목명', '수량']) and usage_has_store
+    df_prices = st.session_state.df_prices
+    df_stores = st.session_state.df_stores
+    df_usage = st.session_state.df_usage
     
-    if not (price_cols_ok and store_cols_ok and usage_cols_ok):
-        st.error("⚠️ 일부 파일의 컬럼명이 올바르지 않습니다. 위의 에러 메시지를 확인해주세요.")
-        st.stop()
+    # 사용내역에 카테고리 추가 (단가 정보와 조인)
+    df_usage_with_category = df_usage.merge(
+        df_prices[['품목명', '카테고리', '단가']],
+        on='품목명',
+        how='left'
+    )
+    
+    # 매장명 통일 (매장코드로 매칭)
+    use_store_code = '매장코드' in df_usage.columns
+    
+    settlements = []
+    category_summary = []
+    total_amount = 0
+    
+    for _, store in df_stores.iterrows():
+        store_code = store['매장코드']
+        store_name = store['매장명']
+        
+        # 해당 매장의 사용내역 필터링
+        if use_store_code:
+            store_usage = df_usage_with_category[df_usage_with_category['매장코드'] == store_code]
+        else:
+            store_usage = df_usage_with_category[df_usage_with_category['매장명'] == store_name]
+        
+        if not store_usage.empty:
+            store_total = 0
+            items_detail = []
+            category_totals = {}
+            
+            for _, usage in store_usage.iterrows():
+                try:
+                    item_name = usage['품목명']
+                    quantity = usage['수량']
+                    unit_price = usage['단가']
+                    category = usage['카테고리']
+                    
+                    if pd.notna(unit_price):
+                        subtotal = unit_price * quantity
+                        store_total += subtotal
+                        
+                        # 카테고리별 집계
+                        if category not in category_totals:
+                            category_totals[category] = {'수량': 0, '금액': 0}
+                        category_totals[category]['수량'] += quantity
+                        category_totals[category]['금액'] += subtotal
+                        
+                        items_detail.append({
+                            '날짜': usage['날짜'],
+                            '품목명': item_name,
+                            '카테고리': category,
+                            '수량': int(quantity) if quantity == int(quantity) else quantity,
+                            '단가': int(unit_price) if unit_price == int(unit_price) else unit_price,
+                            '금액': int(subtotal) if subtotal == int(subtotal) else subtotal
+                        })
+                except:
+                    continue
+            
+            if items_detail:
+                settlements.append({
+                    '매장명': store_name,
+                    '매장코드': store_code,
+                    '상세내역': items_detail,
+                    '카테고리별': category_totals,
+                    '합계': store_total
+                })
+                total_amount += store_total
+                
+                # 전체 카테고리 요약용
+                for cat, data in category_totals.items():
+                    category_summary.append({
+                        '매장명': store_name,
+                        '카테고리': cat,
+                        '수량': data['수량'],
+                        '금액': data['금액']
+                    })
     
     # 요약 통계
     col1, col2, col3, col4 = st.columns(4)
@@ -259,159 +294,502 @@ if price_file and store_file and usage_file:
     with col3:
         st.metric("사용 건수", f"{len(df_usage)}건")
     
-    # 정산 계산
-    settlements = []
-    total_amount = 0
-    
-    # 사용내역이 매장코드를 사용하는지 매장명을 사용하는지 확인
-    use_store_code = '매장코드' in df_usage.columns
-    
-    for _, store in df_stores.iterrows():
-        store_code = store['매장코드']
-        store_name = store['매장명']
-        
-        # 해당 매장의 사용내역 필터링
-        if use_store_code:
-            # 매장코드로 필터링
-            store_usage = df_usage[df_usage['매장코드'] == store_code]
-        else:
-            # 매장명으로 필터링
-            store_usage = df_usage[df_usage['매장명'] == store_name]
-        
-        if not store_usage.empty:
-            store_total = 0
-            items_detail = []
-            
-            for _, usage in store_usage.iterrows():
-                try:
-                    item_name = usage['품목명']
-                    quantity = usage['수량']
-                    
-                    # 단가 찾기
-                    price_info = df_prices[df_prices['품목명'] == item_name]
-                    
-                    if not price_info.empty:
-                        unit_price = price_info.iloc[0]['단가']
-                        subtotal = unit_price * quantity
-                        store_total += subtotal
-                        
-                        items_detail.append({
-                            '날짜': usage['날짜'],
-                            '품목명': item_name,
-                            '수량': int(quantity) if quantity == int(quantity) else quantity,
-                            '단가': int(unit_price) if unit_price == int(unit_price) else unit_price,
-                            '소계': int(subtotal) if subtotal == int(subtotal) else subtotal
-                        })
-                    else:
-                        st.warning(f"⚠️ '{item_name}' 품목의 단가가 등록되지 않았습니다.")
-                
-                except Exception as e:
-                    st.error(f"⚠️ 데이터 처리 중 오류 ({item_name}): {str(e)}")
-                    continue
-            
-            if items_detail:
-                settlements.append({
-                    '매장명': store_name,
-                    '매장코드': store_code,
-                    '상세내역': items_detail,
-                    '합계': store_total
-                })
-                total_amount += store_total
-    
-    # 전체 정산 금액
     with col4:
-        st.metric("전체 정산 금액", f"{total_amount:,}원")
+        st.metric("전체 정산 금액", f"{int(total_amount):,}원")
     
     st.markdown(f"""
     <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
                 padding: 30px; border-radius: 15px; margin: 30px 0;'>
         <h2 style='color: white; margin: 0;'>💵 전체 정산 금액</h2>
         <h1 style='color: white; margin: 10px 0 0 0; font-size: 52px;'>
-            {total_amount:,}원
+            {int(total_amount):,}원
         </h1>
     </div>
     """, unsafe_allow_html=True)
     
-    # 매장별 정산 상세
-    st.subheader("🏪 매장별 정산 내역")
+    # 1. 매장별 정산 내역 (요약)
+    st.subheader("📊 매장별 정산 내역")
     
-    for settlement in settlements:
-        with st.expander(
-            f"**{settlement['매장명']}** ({settlement['매장코드']}) - **{settlement['합계']:,}원**",
-            expanded=True
-        ):
-            df_detail = pd.DataFrame(settlement['상세내역'])
-            
-            # 포맷팅
-            df_detail['단가'] = df_detail['단가'].apply(lambda x: f"{x:,}원")
-            df_detail['소계'] = df_detail['소계'].apply(lambda x: f"{x:,}원")
-            
-            st.dataframe(
-                df_detail,
-                use_container_width=True,
-                hide_index=True
-            )
-            
-            # 매장 합계
-            st.markdown(f"""
-            <div style='background-color: #f0f0f0; padding: 15px; border-radius: 8px; margin-top: 10px;'>
-                <h3 style='margin: 0; text-align: right;'>
-                    매장 합계: <span style='color: #667eea;'>{settlement['합계']:,}원</span>
-                </h3>
-            </div>
-            """, unsafe_allow_html=True)
+    # 필터 추가
+    col_f1, col_f2 = st.columns([2, 1])
+    with col_f1:
+        selected_stores_summary = st.multiselect(
+            "매장 필터",
+            options=df_stores['매장명'].unique().tolist(),
+            default=df_stores['매장명'].unique().tolist(),
+            key="summary_store_filter"
+        )
+    with col_f2:
+        selected_categories_summary = st.multiselect(
+            "카테고리 필터",
+            options=df_prices['카테고리'].unique().tolist(),
+            default=df_prices['카테고리'].unique().tolist(),
+            key="summary_category_filter"
+        )
+    
+    # 필터링된 데이터
+    category_summary_filtered = [
+        item for item in category_summary 
+        if item['매장명'] in selected_stores_summary and item['카테고리'] in selected_categories_summary
+    ]
+    
+    df_category_summary = pd.DataFrame(category_summary_filtered)
+    
+    if not df_category_summary.empty:
+        # 피벗 테이블로 보기 좋게 변환
+        pivot_summary = df_category_summary.pivot_table(
+            index='매장명',
+            columns='카테고리',
+            values=['수량', '금액'],
+            aggfunc='sum',
+            fill_value=0
+        )
+        
+        # 컬럼 정리
+        summary_display = []
+        for store_name in pivot_summary.index:
+            row = {'매장명': store_name}
+            store_total = 0
+            for category in df_prices['카테고리'].unique():
+                if ('수량', category) in pivot_summary.columns:
+                    qty = pivot_summary.loc[store_name, ('수량', category)]
+                    amt = pivot_summary.loc[store_name, ('금액', category)]
+                    row[f'{category}_수량'] = int(qty) if qty == int(qty) else qty
+                    row[f'{category}_금액'] = f"{int(amt):,}원"
+                    store_total += amt
+            row['합계'] = f"{int(store_total):,}원"
+            summary_display.append(row)
+        
+        df_summary_display = pd.DataFrame(summary_display)
+        st.dataframe(df_summary_display, use_container_width=True, hide_index=True)
     
     st.divider()
     
-    # 다운로드 버튼
-    st.subheader("💾 결과 다운로드")
+    # 2. 매장별 정산 상세 내역
+    st.subheader("🏪 매장별 정산 상세 내역")
     
-    # 정산 결과를 데이터프레임으로 변환
+    # 필터 추가
+    col_f1, col_f2, col_f3 = st.columns(3)
+    with col_f1:
+        selected_stores_detail = st.multiselect(
+            "매장 필터",
+            options=df_stores['매장명'].unique().tolist(),
+            default=df_stores['매장명'].unique().tolist(),
+            key="detail_store_filter"
+        )
+    with col_f2:
+        selected_categories_detail = st.multiselect(
+            "카테고리 필터",
+            options=df_prices['카테고리'].unique().tolist(),
+            default=df_prices['카테고리'].unique().tolist(),
+            key="detail_category_filter"
+        )
+    with col_f3:
+        # 날짜 필터 (선택사항)
+        if not df_usage.empty and '날짜' in df_usage.columns:
+            all_dates = pd.to_datetime(df_usage['날짜'], errors='coerce').dropna()
+            if not all_dates.empty:
+                date_filter_enabled = st.checkbox("날짜 필터 사용", key="date_filter_enabled")
+                if date_filter_enabled:
+                    min_date = all_dates.min().date()
+                    max_date = all_dates.max().date()
+                    date_range = st.date_input(
+                        "날짜 범위",
+                        value=(min_date, max_date),
+                        min_value=min_date,
+                        max_value=max_date,
+                        key="date_range_filter"
+                    )
+                else:
+                    date_range = None
+            else:
+                date_range = None
+        else:
+            date_range = None
+    
+    # 필터링된 settlements
+    settlements_filtered = [
+        s for s in settlements 
+        if s['매장명'] in selected_stores_detail
+    ]
+    
+    for settlement in settlements_filtered:
+        # 카테고리와 날짜 필터 적용
+        items_filtered = []
+        for item in settlement['상세내역']:
+            # 카테고리 필터
+            if item['카테고리'] not in selected_categories_detail:
+                continue
+            
+            # 날짜 필터
+            if date_range and len(date_range) == 2:
+                try:
+                    item_date = pd.to_datetime(item['날짜']).date()
+                    if not (date_range[0] <= item_date <= date_range[1]):
+                        continue
+                except:
+                    pass
+            
+            items_filtered.append(item)
+        
+        if items_filtered:
+            filtered_total = sum(item['금액'] for item in items_filtered)
+            
+            with st.expander(
+                f"**{settlement['매장명']}** ({settlement['매장코드']}) - **{int(filtered_total):,}원**",
+                expanded=True
+            ):
+                df_detail = pd.DataFrame(items_filtered)
+                
+                # 포맷팅
+                df_detail['단가'] = df_detail['단가'].apply(lambda x: f"{int(x):,}원")
+                df_detail['금액'] = df_detail['금액'].apply(lambda x: f"{int(x):,}원")
+                
+                st.dataframe(
+                    df_detail,
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                # 매장 합계
+                st.markdown(f"""
+                <div style='background-color: #f0f0f0; padding: 15px; border-radius: 8px; margin-top: 10px;'>
+                    <h3 style='margin: 0; text-align: right;'>
+                        매장 합계 (필터 적용): <span style='color: #667eea;'>{int(filtered_total):,}원</span>
+                    </h3>
+                </div>
+                """, unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # 3. 전체 상세 내역
+    st.subheader("📋 전체 상세 내역")
+    
+    # 필터 추가
+    col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+    with col_f1:
+        selected_stores_all = st.multiselect(
+            "매장 필터",
+            options=df_stores['매장명'].unique().tolist(),
+            default=df_stores['매장명'].unique().tolist(),
+            key="all_store_filter"
+        )
+    with col_f2:
+        selected_categories_all = st.multiselect(
+            "카테고리 필터",
+            options=df_prices['카테고리'].unique().tolist(),
+            default=df_prices['카테고리'].unique().tolist(),
+            key="all_category_filter"
+        )
+    with col_f3:
+        all_items = []
+        for settlement in settlements:
+            for item in settlement['상세내역']:
+                all_items.append(item['품목명'])
+        unique_items = list(set(all_items))
+        
+        selected_items = st.multiselect(
+            "품목 필터",
+            options=sorted(unique_items),
+            default=sorted(unique_items),
+            key="all_item_filter"
+        )
+    with col_f4:
+        # 날짜 필터 (선택사항)
+        if not df_usage.empty and '날짜' in df_usage.columns:
+            all_dates = pd.to_datetime(df_usage['날짜'], errors='coerce').dropna()
+            if not all_dates.empty:
+                date_filter_all_enabled = st.checkbox("날짜 필터 사용", key="date_filter_all_enabled")
+                if date_filter_all_enabled:
+                    min_date = all_dates.min().date()
+                    max_date = all_dates.max().date()
+                    date_range_all = st.date_input(
+                        "날짜 범위",
+                        value=(min_date, max_date),
+                        min_value=min_date,
+                        max_value=max_date,
+                        key="date_range_all_filter"
+                    )
+                else:
+                    date_range_all = None
+            else:
+                date_range_all = None
+        else:
+            date_range_all = None
+    
     export_data = []
     for settlement in settlements:
+        if settlement['매장명'] not in selected_stores_all:
+            continue
+        
         for item in settlement['상세내역']:
+            # 카테고리 필터
+            if item['카테고리'] not in selected_categories_all:
+                continue
+            
+            # 품목 필터
+            if item['품목명'] not in selected_items:
+                continue
+            
+            # 날짜 필터
+            if date_range_all and len(date_range_all) == 2:
+                try:
+                    item_date = pd.to_datetime(item['날짜']).date()
+                    if not (date_range_all[0] <= item_date <= date_range_all[1]):
+                        continue
+                except:
+                    pass
+            
             export_data.append({
                 '매장명': settlement['매장명'],
                 '매장코드': settlement['매장코드'],
                 '날짜': item['날짜'],
                 '품목명': item['품목명'],
+                '카테고리': item['카테고리'],
                 '수량': item['수량'],
                 '단가': item['단가'],
-                '소계': item['소계']
+                '금액': item['금액']
             })
     
     df_export = pd.DataFrame(export_data)
     
-    # 합계 행 추가
-    total_row = pd.DataFrame([{
-        '매장명': '전체 합계',
-        '매장코드': '',
-        '날짜': '',
-        '품목명': '',
-        '수량': '',
-        '단가': '',
-        '소계': total_amount
-    }])
+    if not df_export.empty:
+        # 필터링된 총액 표시
+        filtered_total_amount = df_export['금액'].sum()
+        st.info(f"📊 필터링된 데이터: **{len(df_export)}건** | 총액: **{int(filtered_total_amount):,}원**")
+        
+        # 화면 표시용 (포맷팅)
+        df_display = df_export.copy()
+        df_display['단가'] = df_display['단가'].apply(lambda x: f"{int(x):,}원" if isinstance(x, (int, float)) else x)
+        df_display['금액'] = df_display['금액'].apply(lambda x: f"{int(x):,}원" if isinstance(x, (int, float)) else x)
+        
+        st.dataframe(df_display, use_container_width=True, hide_index=True)
+    else:
+        st.warning("⚠️ 필터 조건에 맞는 데이터가 없습니다.")
     
-    df_export = pd.concat([df_export, total_row], ignore_index=True)
+    st.divider()
     
-    # CSV 다운로드
-    csv = df_export.to_csv(index=False, encoding='utf-8-sig')
+    # 4. 다운로드 및 이메일 발송
+    st.subheader("💾 다운로드 및 이메일 발송")
     
-    st.download_button(
-        label="📥 정산 결과 다운로드 (CSV)",
-        data=csv,
-        file_name=f"정산결과_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        mime="text/csv",
-        use_container_width=True
-    )
+    col1, col2 = st.columns(2)
     
-    # 상세 내역 테이블
-    st.subheader("📋 전체 상세 내역")
-    st.dataframe(df_export, use_container_width=True, hide_index=True)
+    with col1:
+        st.markdown("#### 📥 XLSX 다운로드")
+        
+        download_filtered = st.checkbox("필터링된 데이터만 다운로드", value=False, key="download_filtered")
+        
+        # XLSX 파일 생성
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            if download_filtered and not df_export.empty:
+                # 필터링된 데이터
+                # 매장별 정산 내역 (필터링)
+                if not df_category_summary.empty:
+                    pivot_summary = df_category_summary.pivot_table(
+                        index='매장명',
+                        columns='카테고리',
+                        values=['수량', '금액'],
+                        aggfunc='sum',
+                        fill_value=0
+                    )
+                    
+                    summary_display = []
+                    for store_name in pivot_summary.index:
+                        row = {'매장명': store_name}
+                        store_total = 0
+                        for category in selected_categories_summary:
+                            if ('수량', category) in pivot_summary.columns:
+                                qty = pivot_summary.loc[store_name, ('수량', category)]
+                                amt = pivot_summary.loc[store_name, ('금액', category)]
+                                row[f'{category}_수량'] = int(qty) if qty == int(qty) else qty
+                                row[f'{category}_금액'] = int(amt)
+                                store_total += amt
+                        row['합계'] = int(store_total)
+                        summary_display.append(row)
+                    
+                    pd.DataFrame(summary_display).to_excel(writer, sheet_name='매장별정산_필터링', index=False)
+                
+                # 전체 상세 내역 (필터링)
+                df_export.to_excel(writer, sheet_name='상세내역_필터링', index=False)
+            else:
+                # 전체 데이터
+                # 매장별 정산 내역 (전체)
+                df_category_summary_all = pd.DataFrame(category_summary)
+                if not df_category_summary_all.empty:
+                    pivot_summary = df_category_summary_all.pivot_table(
+                        index='매장명',
+                        columns='카테고리',
+                        values=['수량', '금액'],
+                        aggfunc='sum',
+                        fill_value=0
+                    )
+                    
+                    summary_display = []
+                    for store_name in pivot_summary.index:
+                        row = {'매장명': store_name}
+                        store_total = 0
+                        for category in df_prices['카테고리'].unique():
+                            if ('수량', category) in pivot_summary.columns:
+                                qty = pivot_summary.loc[store_name, ('수량', category)]
+                                amt = pivot_summary.loc[store_name, ('금액', category)]
+                                row[f'{category}_수량'] = int(qty) if qty == int(qty) else qty
+                                row[f'{category}_금액'] = int(amt)
+                                store_total += amt
+                        row['합계'] = int(store_total)
+                        summary_display.append(row)
+                    
+                    pd.DataFrame(summary_display).to_excel(writer, sheet_name='매장별정산', index=False)
+                
+                # 전체 상세 내역
+                export_data_all = []
+                for settlement in settlements:
+                    for item in settlement['상세내역']:
+                        export_data_all.append({
+                            '매장명': settlement['매장명'],
+                            '매장코드': settlement['매장코드'],
+                            '날짜': item['날짜'],
+                            '품목명': item['품목명'],
+                            '카테고리': item['카테고리'],
+                            '수량': item['수량'],
+                            '단가': item['단가'],
+                            '금액': item['금액']
+                        })
+                pd.DataFrame(export_data_all).to_excel(writer, sheet_name='상세내역', index=False)
+                
+                # 각 매장별 시트
+                for settlement in settlements:
+                    df_store = pd.DataFrame(settlement['상세내역'])
+                    sheet_name = settlement['매장명'][:31]  # Excel 시트명 길이 제한
+                    df_store.to_excel(writer, sheet_name=sheet_name, index=False)
+        
+        excel_data = output.getvalue()
+        
+        file_suffix = "_필터링" if download_filtered else ""
+        st.download_button(
+            label=f"📥 정산 결과 다운로드{file_suffix} (XLSX)",
+            data=excel_data,
+            file_name=f"정산결과{file_suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+    
+    with col2:
+        st.markdown("#### 📧 이메일 발송")
+        
+        email_filtered = st.checkbox("필터링된 데이터만 발송", value=False, key="email_filtered")
+        email_to = st.text_input("받는 사람 이메일", placeholder="example@email.com")
+        
+        if st.button("📧 매장별 정산 내역 이메일 발송", use_container_width=True):
+            if email_to:
+                # 사용할 데이터 결정
+                if email_filtered and not df_category_summary.empty:
+                    summary_data_for_email = df_category_summary
+                    email_categories = selected_categories_summary
+                    email_subject_suffix = " (필터링)"
+                else:
+                    summary_data_for_email = pd.DataFrame(category_summary)
+                    email_categories = df_prices['카테고리'].unique()
+                    email_subject_suffix = ""
+                
+                # 이메일 본문 생성
+                email_body = f"""
+                <html>
+                <head>
+                    <style>
+                        table {{ border-collapse: collapse; width: 100%; }}
+                        th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                        th {{ background-color: #667eea; color: white; }}
+                        .total {{ background-color: #f0f0f0; font-weight: bold; }}
+                    </style>
+                </head>
+                <body>
+                    <h2>💰 파트너 정산 내역{email_subject_suffix}</h2>
+                    <p>정산 기간: {datetime.now().strftime('%Y-%m-%d')}</p>
+"""
+                
+                if email_filtered and not df_export.empty:
+                    filtered_email_total = df_export['금액'].sum()
+                    email_body += f"<h3>정산 금액 (필터 적용): {int(filtered_email_total):,}원</h3>"
+                else:
+                    email_body += f"<h3>전체 정산 금액: {int(total_amount):,}원</h3>"
+                
+                email_body += """
+                    <h3>매장별 정산 내역</h3>
+                    <table>
+                        <tr>
+                            <th>매장명</th>
+"""
+                
+                # 카테고리 헤더 추가
+                for category in email_categories:
+                    email_body += f"<th>{category} 수량</th><th>{category} 금액</th>"
+                email_body += "<th>합계</th></tr>"
+                
+                # 피벗 테이블 생성
+                if not summary_data_for_email.empty:
+                    pivot_summary = summary_data_for_email.pivot_table(
+                        index='매장명',
+                        columns='카테고리',
+                        values=['수량', '금액'],
+                        aggfunc='sum',
+                        fill_value=0
+                    )
+                    
+                    # 데이터 행 추가
+                    for store_name in pivot_summary.index:
+                        email_body += f"<tr><td>{store_name}</td>"
+                        store_total = 0
+                        for category in email_categories:
+                            if ('수량', category) in pivot_summary.columns:
+                                qty = pivot_summary.loc[store_name, ('수량', category)]
+                                amt = pivot_summary.loc[store_name, ('금액', category)]
+                                email_body += f"<td>{int(qty)}</td><td>{int(amt):,}원</td>"
+                                store_total += amt
+                            else:
+                                email_body += "<td>0</td><td>0원</td>"
+                        email_body += f"<td><strong>{int(store_total):,}원</strong></td></tr>"
+                
+                email_body += """
+                    </table>
+                    <br>
+                    <p>※ 상세 내역은 첨부된 XLSX 파일을 확인해주세요.</p>
+                </body>
+                </html>
+                """
+                
+                try:
+                    # 이메일 설정 입력
+                    with st.expander("📧 이메일 설정 (Gmail 사용)"):
+                        sender_email = st.text_input("보내는 사람 Gmail", type="default")
+                        sender_password = st.text_input("Gmail 앱 비밀번호", type="password", help="Gmail > 계정 > 보안 > 2단계 인증 > 앱 비밀번호")
+                        
+                        if sender_email and sender_password:
+                            msg = MIMEMultipart('alternative')
+                            msg['Subject'] = f"[파트너 정산{email_subject_suffix}] {datetime.now().strftime('%Y-%m-%d')} 정산 내역"
+                            msg['From'] = sender_email
+                            msg['To'] = email_to
+                            
+                            html_part = MIMEText(email_body, 'html')
+                            msg.attach(html_part)
+                            
+                            # Gmail SMTP 서버로 전송
+                            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+                                server.login(sender_email, sender_password)
+                                server.send_message(msg)
+                            
+                            st.success(f"✅ 이메일이 {email_to}로 발송되었습니다!")
+                        else:
+                            st.warning("이메일 설정을 입력해주세요.")
+                
+                except Exception as e:
+                    st.error(f"❌ 이메일 발송 실패: {str(e)}")
+                    st.info("Gmail 앱 비밀번호를 사용하세요: https://support.google.com/accounts/answer/185833")
+            else:
+                st.warning("받는 사람 이메일을 입력해주세요.")
 
 else:
-    st.info("📤 위에서 3개 파일(단가관리, 매장관리, 사용내역)을 모두 업로드해주세요!")
+    st.info("📤 3개 파일(단가관리, 매장관리, 사용내역)을 모두 업로드해주세요!")
     
     st.markdown("---")
     
@@ -425,12 +803,7 @@ else:
 비닐봉투(소),50,부자재
 비닐봉투(대),100,부자재
 박스(소),500,부자재
-박스(중),800,부자재
-박스(대),1200,부자재
-테이프,300,부자재
-에어캡,200,부자재
 택배,3000,택배
-택배(착불),3500,택배
 행낭,1500,행낭"""
         
         st.download_button(
@@ -444,10 +817,7 @@ else:
     with col2:
         sample_stores = """매장명,매장코드
 강남점,GN01
-서초점,SC01
-역삼점,YS01
-논현점,NH01
-신사점,SS01"""
+서초점,SC01"""
         
         st.download_button(
             label="🏪 매장관리 샘플",
@@ -458,42 +828,14 @@ else:
         )
     
     with col3:
-        sample_usage = """날짜,매장코드,품목명,수량
-2024-11-01,GN01,비닐봉투(소),50
-2024-11-01,GN01,비닐봉투(대),30
-2024-11-01,GN01,택배,10
-2024-11-01,GN01,행낭,5
-2024-11-02,SC01,비닐봉투(소),40
-2024-11-02,SC01,박스(소),15
-2024-11-02,SC01,택배,8
-2024-11-03,YS01,비닐봉투(대),25
-2024-11-03,YS01,테이프,10
-2024-11-03,YS01,행낭,3"""
-        
-        st.download_button(
-            label="📊 사용내역 샘플 (매장코드)",
-            data=sample_usage,
-            file_name="사용내역_샘플_매장코드.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
-        
-        sample_usage_name = """날짜,매장명,품목명,수량
+        sample_usage = """날짜,매장명,품목명,수량
 2024-11-01,강남점,비닐봉투(소),50
-2024-11-01,강남점,비닐봉투(대),30
-2024-11-01,강남점,택배,10
-2024-11-01,강남점,행낭,5
-2024-11-02,서초점,비닐봉투(소),40
-2024-11-02,서초점,박스(소),15
-2024-11-02,서초점,택배,8
-2024-11-03,역삼점,비닐봉투(대),25
-2024-11-03,역삼점,테이프,10
-2024-11-03,역삼점,행낭,3"""
+2024-11-01,강남점,택배,10"""
         
         st.download_button(
-            label="📊 사용내역 샘플 (매장명)",
-            data=sample_usage_name,
-            file_name="사용내역_샘플_매장명.csv",
+            label="📊 사용내역 샘플",
+            data=sample_usage,
+            file_name="사용내역_샘플.csv",
             mime="text/csv",
             use_container_width=True
         )
@@ -502,6 +844,6 @@ else:
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: gray; padding: 20px;'>
-    💰 파트너 정산 관리 시스템 v2.0 | Made with Streamlit
+    💰 파트너 정산 관리 시스템 v3.0 | Made with Streamlit
 </div>
 """, unsafe_allow_html=True)
