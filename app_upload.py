@@ -90,9 +90,21 @@ with col1:
                 price_file.seek(0)
                 df_prices = pd.read_csv(price_file, encoding='euc-kr')
         
-        st.success(f"✅ {len(df_prices)}개 품목 로드")
-        with st.expander("데이터 미리보기"):
-            st.dataframe(df_prices, hide_index=True)
+        # 컬럼명 공백 제거
+        df_prices.columns = df_prices.columns.str.strip()
+        
+        # 필수 컬럼 체크
+        required_cols = ['품목명', '단가', '카테고리']
+        missing_cols = [col for col in required_cols if col not in df_prices.columns]
+        
+        if missing_cols:
+            st.error(f"❌ 단가관리 파일에 필수 컬럼이 없습니다: {', '.join(missing_cols)}")
+            st.info(f"현재 컬럼: {', '.join(df_prices.columns.tolist())}")
+            st.warning("필요한 컬럼: 품목명, 단가, 카테고리")
+        else:
+            st.success(f"✅ {len(df_prices)}개 품목 로드")
+            with st.expander("데이터 미리보기"):
+                st.dataframe(df_prices, hide_index=True)
 
 # 매장관리 업로드
 with col2:
@@ -115,9 +127,21 @@ with col2:
                 store_file.seek(0)
                 df_stores = pd.read_csv(store_file, encoding='euc-kr')
         
-        st.success(f"✅ {len(df_stores)}개 매장 로드")
-        with st.expander("데이터 미리보기"):
-            st.dataframe(df_stores, hide_index=True)
+        # 컬럼명 공백 제거
+        df_stores.columns = df_stores.columns.str.strip()
+        
+        # 필수 컬럼 체크
+        required_cols = ['매장명', '매장코드']
+        missing_cols = [col for col in required_cols if col not in df_stores.columns]
+        
+        if missing_cols:
+            st.error(f"❌ 매장관리 파일에 필수 컬럼이 없습니다: {', '.join(missing_cols)}")
+            st.info(f"현재 컬럼: {', '.join(df_stores.columns.tolist())}")
+            st.warning("필요한 컬럼: 매장명, 매장코드")
+        else:
+            st.success(f"✅ {len(df_stores)}개 매장 로드")
+            with st.expander("데이터 미리보기"):
+                st.dataframe(df_stores, hide_index=True)
 
 # 사용내역 업로드
 with col3:
@@ -140,15 +164,36 @@ with col3:
                 usage_file.seek(0)
                 df_usage = pd.read_csv(usage_file, encoding='euc-kr')
         
-        st.success(f"✅ {len(df_usage)}건 로드")
-        with st.expander("데이터 미리보기"):
-            st.dataframe(df_usage.head(10), hide_index=True)
+        # 컬럼명 공백 제거
+        df_usage.columns = df_usage.columns.str.strip()
+        
+        # 필수 컬럼 체크
+        required_cols = ['날짜', '매장코드', '품목명', '수량']
+        missing_cols = [col for col in required_cols if col not in df_usage.columns]
+        
+        if missing_cols:
+            st.error(f"❌ 사용내역 파일에 필수 컬럼이 없습니다: {', '.join(missing_cols)}")
+            st.info(f"현재 컬럼: {', '.join(df_usage.columns.tolist())}")
+            st.warning("필요한 컬럼: 날짜, 매장코드, 품목명, 수량")
+        else:
+            st.success(f"✅ {len(df_usage)}건 로드")
+            with st.expander("데이터 미리보기"):
+                st.dataframe(df_usage.head(10), hide_index=True)
 
 st.divider()
 
 # 정산 계산
 if price_file and store_file and usage_file:
     st.header("📊 정산 결과")
+    
+    # 컬럼 존재 여부 확인
+    price_cols_ok = all(col in df_prices.columns for col in ['품목명', '단가', '카테고리'])
+    store_cols_ok = all(col in df_stores.columns for col in ['매장명', '매장코드'])
+    usage_cols_ok = all(col in df_usage.columns for col in ['날짜', '매장코드', '품목명', '수량'])
+    
+    if not (price_cols_ok and store_cols_ok and usage_cols_ok):
+        st.error("⚠️ 일부 파일의 컬럼명이 올바르지 않습니다. 위의 에러 메시지를 확인해주세요.")
+        st.stop()
     
     # 요약 통계
     col1, col2, col3, col4 = st.columns(4)
