@@ -101,6 +101,11 @@ with col1:
         # 컬럼명 공백 제거
         df_prices.columns = df_prices.columns.str.strip()
         
+        # 데이터 공백 제거 (문자열 컬럼만)
+        for col in df_prices.columns:
+            if df_prices[col].dtype == 'object':
+                df_prices[col] = df_prices[col].str.strip()
+        
         # 필수 컬럼 체크
         required_cols = ['품목명', '단가', '카테고리']
         missing_cols = [col for col in required_cols if col not in df_prices.columns]
@@ -110,6 +115,16 @@ with col1:
             st.info(f"현재 컬럼: {', '.join(df_prices.columns.tolist())}")
             st.warning("필요한 컬럼: 품목명, 단가, 카테고리")
         else:
+            # 단가를 숫자로 변환
+            try:
+                df_prices['단가'] = pd.to_numeric(df_prices['단가'], errors='coerce')
+                invalid_prices = df_prices[df_prices['단가'].isna()]
+                if not invalid_prices.empty:
+                    st.warning(f"⚠️ 단가가 숫자가 아닌 항목이 있습니다: {invalid_prices['품목명'].tolist()}")
+                    df_prices = df_prices[df_prices['단가'].notna()]
+            except Exception as e:
+                st.error(f"단가 변환 오류: {e}")
+            
             st.success(f"✅ {len(df_prices)}개 품목 로드")
             with st.expander("데이터 미리보기"):
                 st.dataframe(df_prices, hide_index=True)
@@ -137,6 +152,11 @@ with col2:
         
         # 컬럼명 공백 제거
         df_stores.columns = df_stores.columns.str.strip()
+        
+        # 데이터 공백 제거 (문자열 컬럼만)
+        for col in df_stores.columns:
+            if df_stores[col].dtype == 'object':
+                df_stores[col] = df_stores[col].str.strip()
         
         # 필수 컬럼 체크
         required_cols = ['매장명', '매장코드']
@@ -175,6 +195,11 @@ with col3:
         # 컬럼명 공백 제거
         df_usage.columns = df_usage.columns.str.strip()
         
+        # 데이터 공백 제거 (문자열 컬럼만)
+        for col in df_usage.columns:
+            if df_usage[col].dtype == 'object':
+                df_usage[col] = df_usage[col].str.strip()
+        
         # 필수 컬럼 체크 (매장코드 또는 매장명 중 하나만 있으면 됨)
         has_store_code = '매장코드' in df_usage.columns
         has_store_name = '매장명' in df_usage.columns
@@ -191,6 +216,16 @@ with col3:
             st.error(f"❌ 사용내역 파일에 필수 컬럼이 없습니다: {', '.join(missing)}")
             st.info(f"현재 컬럼: {', '.join(df_usage.columns.tolist())}")
         else:
+            # 수량을 숫자로 변환
+            try:
+                df_usage['수량'] = pd.to_numeric(df_usage['수량'], errors='coerce')
+                invalid_qty = df_usage[df_usage['수량'].isna()]
+                if not invalid_qty.empty:
+                    st.warning(f"⚠️ 수량이 숫자가 아닌 항목이 {len(invalid_qty)}개 있습니다. 해당 항목은 제외됩니다.")
+                    df_usage = df_usage[df_usage['수량'].notna()]
+            except Exception as e:
+                st.error(f"수량 변환 오류: {e}")
+            
             store_col_type = "매장명" if has_store_name else "매장코드"
             st.success(f"✅ {len(df_usage)}건 로드 ({store_col_type} 사용)")
             with st.expander("데이터 미리보기"):
@@ -248,26 +283,31 @@ if price_file and store_file and usage_file:
             items_detail = []
             
             for _, usage in store_usage.iterrows():
-                item_name = usage['품목명']
-                quantity = usage['수량']
-                
-                # 단가 찾기
-                price_info = df_prices[df_prices['품목명'] == item_name]
-                
-                if not price_info.empty:
-                    unit_price = price_info.iloc[0]['단가']
-                    subtotal = unit_price * quantity
-                    store_total += subtotal
+                try:
+                    item_name = usage['품목명']
+                    quantity = usage['수량']
                     
-                    items_detail.append({
-                        '날짜': usage['날짜'],
-                        '품목명': item_name,
-                        '수량': quantity,
-                        '단가': unit_price,
-                        '소계': subtotal
-                    })
-                else:
-                    st.warning(f"⚠️ '{item_name}' 품목의 단가가 등록되지 않았습니다.")
+                    # 단가 찾기
+                    price_info = df_prices[df_prices['품목명'] == item_name]
+                    
+                    if not price_info.empty:
+                        unit_price = price_info.iloc[0]['단가']
+                        subtotal = unit_price * quantity
+                        store_total += subtotal
+                        
+                        items_detail.append({
+                            '날짜': usage['날짜'],
+                            '품목명': item_name,
+                            '수량': int(quantity) if quantity == int(quantity) else quantity,
+                            '단가': int(unit_price) if unit_price == int(unit_price) else unit_price,
+                            '소계': int(subtotal) if subtotal == int(subtotal) else subtotal
+                        })
+                    else:
+                        st.warning(f"⚠️ '{item_name}' 품목의 단가가 등록되지 않았습니다.")
+                
+                except Exception as e:
+                    st.error(f"⚠️ 데이터 처리 중 오류 ({item_name}): {str(e)}")
+                    continue
             
             if items_detail:
                 settlements.append({
