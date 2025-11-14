@@ -23,6 +23,10 @@ if 'df_usage' not in st.session_state:
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 
+# 이메일 설정 (기본값)
+DEFAULT_SENDER_EMAIL = "dlwlsgur85@gmail.com"
+DEFAULT_SENDER_PASSWORD = "lpmu cclo ftnc yvam"
+
 # 제목
 st.title("💰 파트너 정산 관리 시스템")
 st.markdown("### 부자재 · 택배 · 행낭 사용 비용 자동 정산")
@@ -56,6 +60,31 @@ with st.sidebar:
         st.session_state.df_usage = pd.DataFrame()
         st.success("데이터가 초기화되었습니다!")
         st.rerun()
+    
+    st.divider()
+    
+    # 이메일 설정 정보
+    st.markdown("### 📧 이메일 설정")
+    
+    with st.expander("📧 현재 이메일 설정 보기/수정"):
+        st.write("**현재 설정:**")
+        st.code(f"Gmail: {DEFAULT_SENDER_EMAIL}")
+        st.code(f"비밀번호: {DEFAULT_SENDER_PASSWORD}")
+        
+        st.markdown("---")
+        st.warning("⚠️ 이메일 설정을 변경하려면 코드를 직접 수정해야 합니다.")
+        st.info("""
+        **변경 방법:**
+        1. GitHub에서 app_v3.1.py 파일 열기
+        2. 14-15번째 줄 수정:
+        ```python
+        DEFAULT_SENDER_EMAIL = "새이메일@gmail.com"
+        DEFAULT_SENDER_PASSWORD = "새비밀번호"
+        ```
+        3. Commit → 자동 재배포
+        """)
+    
+    st.success("✅ 이메일 발송 시 자동으로 위 설정이 사용됩니다")
     
     st.divider()
     
@@ -759,32 +788,36 @@ if not st.session_state.df_prices.empty and not st.session_state.df_stores.empty
                 """
                 
                 try:
-                    # 이메일 설정 입력
-                    with st.expander("📧 이메일 설정 (Gmail 사용)"):
-                        sender_email = st.text_input("보내는 사람 Gmail", type="default")
-                        sender_password = st.text_input("Gmail 앱 비밀번호", type="password", help="Gmail > 계정 > 보안 > 2단계 인증 > 앱 비밀번호")
-                        
-                        if sender_email and sender_password:
-                            msg = MIMEMultipart('alternative')
-                            msg['Subject'] = f"[파트너 정산{email_subject_suffix}] {datetime.now().strftime('%Y-%m-%d')} 정산 내역"
-                            msg['From'] = sender_email
-                            msg['To'] = email_to
-                            
-                            html_part = MIMEText(email_body, 'html')
-                            msg.attach(html_part)
-                            
-                            # Gmail SMTP 서버로 전송
-                            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
-                                server.login(sender_email, sender_password)
-                                server.send_message(msg)
-                            
-                            st.success(f"✅ 이메일이 {email_to}로 발송되었습니다!")
-                        else:
-                            st.warning("이메일 설정을 입력해주세요.")
+                    # 기본 이메일 설정 사용
+                    sender_email = DEFAULT_SENDER_EMAIL
+                    sender_password = DEFAULT_SENDER_PASSWORD.replace(" ", "")  # 공백 제거
+                    
+                    msg = MIMEMultipart('alternative')
+                    msg['Subject'] = f"[파트너 정산{email_subject_suffix}] {datetime.now().strftime('%Y-%m-%d')} 정산 내역"
+                    msg['From'] = sender_email
+                    msg['To'] = email_to
+                    
+                    html_part = MIMEText(email_body, 'html')
+                    msg.attach(html_part)
+                    
+                    # Gmail SMTP 서버로 전송
+                    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+                        server.login(sender_email, sender_password)
+                        server.send_message(msg)
+                    
+                    st.success(f"✅ 이메일이 {email_to}로 발송되었습니다!")
+                    st.info(f"발신: {sender_email}")
                 
                 except Exception as e:
                     st.error(f"❌ 이메일 발송 실패: {str(e)}")
-                    st.info("Gmail 앱 비밀번호를 사용하세요: https://support.google.com/accounts/answer/185833")
+                    st.info("""
+                    **문제 해결:**
+                    1. Gmail 앱 비밀번호가 올바른지 확인
+                    2. 2단계 인증이 활성화되어 있는지 확인
+                    3. 앱 비밀번호를 새로 생성해보세요
+                    
+                    [Gmail 앱 비밀번호 생성하기](https://support.google.com/accounts/answer/185833)
+                    """)
             else:
                 st.warning("받는 사람 이메일을 입력해주세요.")
 
