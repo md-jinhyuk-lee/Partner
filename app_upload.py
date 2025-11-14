@@ -78,7 +78,18 @@ with col1:
     )
     
     if price_file:
-        df_prices = pd.read_csv(price_file)
+        try:
+            # UTF-8 시도
+            df_prices = pd.read_csv(price_file, encoding='utf-8')
+        except UnicodeDecodeError:
+            # CP949(EUC-KR) 시도
+            price_file.seek(0)  # 파일 포인터 초기화
+            try:
+                df_prices = pd.read_csv(price_file, encoding='cp949')
+            except:
+                price_file.seek(0)
+                df_prices = pd.read_csv(price_file, encoding='euc-kr')
+        
         st.success(f"✅ {len(df_prices)}개 품목 로드")
         with st.expander("데이터 미리보기"):
             st.dataframe(df_prices, hide_index=True)
@@ -94,7 +105,16 @@ with col2:
     )
     
     if store_file:
-        df_stores = pd.read_csv(store_file)
+        try:
+            df_stores = pd.read_csv(store_file, encoding='utf-8')
+        except UnicodeDecodeError:
+            store_file.seek(0)
+            try:
+                df_stores = pd.read_csv(store_file, encoding='cp949')
+            except:
+                store_file.seek(0)
+                df_stores = pd.read_csv(store_file, encoding='euc-kr')
+        
         st.success(f"✅ {len(df_stores)}개 매장 로드")
         with st.expander("데이터 미리보기"):
             st.dataframe(df_stores, hide_index=True)
@@ -110,7 +130,16 @@ with col3:
     )
     
     if usage_file:
-        df_usage = pd.read_csv(usage_file)
+        try:
+            df_usage = pd.read_csv(usage_file, encoding='utf-8')
+        except UnicodeDecodeError:
+            usage_file.seek(0)
+            try:
+                df_usage = pd.read_csv(usage_file, encoding='cp949')
+            except:
+                usage_file.seek(0)
+                df_usage = pd.read_csv(usage_file, encoding='euc-kr')
+        
         st.success(f"✅ {len(df_usage)}건 로드")
         with st.expander("데이터 미리보기"):
             st.dataframe(df_usage.head(10), hide_index=True)
